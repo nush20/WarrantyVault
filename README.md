@@ -1,84 +1,137 @@
 # WarrantyVault
 
-WarrantyVault is a warranty-management application for keeping products, purchase details, receipts, warranty documents, and expiry reminders in one place. It provides a FastAPI backend, a PostgreSQL-compatible data model, JWT authentication, scheduled email reminders, optional Gemini invoice extraction, and a lightweight Streamlit interface.
+**WarrantyVault** is a warranty-management application for storing products, receipts, and warranty documents while **tracking warranty expirations and sending reminders before coverage ends**.
+
+It combines a **FastAPI backend, JWT authentication, relational data modelling, scheduled email reminders, optional Gemini-assisted invoice extraction, and a Streamlit interface**.
 
 ## Features
 
-- Secure signup and login with password hashing and JWT authentication
-- Product CRUD with search, filters, pagination, and ownership protection
-- Automatic warranty status and expiry tracking
-- PDF/image storage with authenticated download and deletion
-- Many-to-many product–document relationships for multi-item invoices
-- Gemini-powered invoice prefill with editable review before saving
-- Product-specific 30-day, 7-day, and 1-day email reminders
-- Dashboard counts for active, expiring, and expired warranties
+* 🔐 **JWT Authentication & Authorization** — Secure signup/login with password hashing and user-scoped access.
+* 📦 **Product Management** — CRUD operations with search, filtering, pagination, ownership protection, and automatic warranty-expiry calculation.
+* 📄 **Document Management** — Authenticated upload, download, and deletion of PDF/image warranty documents.
+* 🔗 **Many-to-Many Relationships** — A single invoice can be linked to multiple products, while each product can have multiple documents.
+* ✨ **Invoice Autofill** — Gemini converts text-based invoice PDFs into structured product information, with **editable user review before database writes**.
+* 🔔 **Warranty Reminders** — Configurable **30-day, 7-day, and 1-day** expiry reminders delivered through email.
+* 🛡️ **Duplicate-Safe Notifications** — Database-backed notification records prevent repeated reminders for the same product and reminder type.
+* 📊 **Dashboard Analytics** — SQL-based counts for active, expiring, and expired warranties.
 
 ## Architecture
 
 ```text
-Streamlit → FastAPI routers → service layer → SQLAlchemy → PostgreSQL
-                                ├── local document storage
+Streamlit → FastAPI routers → Service layer → SQLAlchemy → PostgreSQL
+                                ├── Local document storage
                                 ├── Gemini extraction (optional)
-                                └── daily reminder scheduler → SMTP
+                                └── Daily reminder scheduler → SMTP
 ```
+
+The backend follows a **layered architecture**, keeping HTTP handling, validation, business logic, and persistence separate.
 
 ```text
 backend/
 ├── ai/          # PDF text and invoice-field extraction
 ├── database/    # Engine and database sessions
 ├── models/      # SQLAlchemy tables
-├── routers/     # HTTP endpoints
+├── routers/     # FastAPI endpoints
 ├── schemas/     # Pydantic request/response models
 ├── services/    # Business logic
-├── utils/       # Auth dependencies and exceptions
-└── main.py      # FastAPI application and scheduler startup
+├── utils/       # Authentication and exceptions
+└── main.py      # Application entry point and scheduler startup
 ```
 
-## Run locally
+## Main Workflow
+
+```text
+Add product manually ───────────────┐
+                                    ├──→ Save product
+Upload invoice → Extract → Review ──┘        ↓
+                                      Track expiry
+                                            ↓
+                                     Schedule reminder
+                                            ↓
+                                         Email
+```
+
+Invoice extraction **never automatically modifies product data**.
+
+```text
+Invoice
+   ↓
+Extract text
+   ↓
+Gemini structured extraction
+   ↓
+Pydantic validation
+   ↓
+Editable preview
+   ↓
+User confirmation
+   ↓
+Create products + link invoice
+```
+
+This keeps AI-assisted input separate from authoritative application data.
+
+## Key Endpoints
+
+| Endpoint                          | Purpose                                     |
+| --------------------------------- | ------------------------------------------- |
+| `POST /auth/signup`               | Create an account                           |
+| `POST /auth/login`                | Authenticate and receive JWT                |
+| `GET /products`                   | Search, filter and paginate products        |
+| `POST /products`                  | Create product                              |
+| `GET/PATCH/DELETE /products/{id}` | Product CRUD                                |
+| `GET /products/expiring`          | Find warranties expiring within a window    |
+| `POST /documents`                 | Upload receipt/warranty document            |
+| `POST /documents/{id}/extract`    | Generate editable invoice preview           |
+| `POST /documents/{id}/confirm`    | Confirm products and document relationships |
+| `GET /analytics/summary`          | Retrieve dashboard warranty statistics      |
+
+Protected operations are **scoped to the authenticated user**, preventing users from accessing another account's products or documents.
+
+## Tech Stack
+
+**Backend:** Python, FastAPI, Pydantic, SQLAlchemy
+**Database:** PostgreSQL / SQLite
+**Authentication:** JWT + password hashing
+**AI:** Google Gemini
+**Frontend:** Streamlit
+**Notifications:** Scheduled jobs + SMTP
+
+## Run Locally
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
+
 pip install -r requirements.txt
+
 cp .env.example .env
+
 python -m uvicorn backend.main:app --reload
 ```
 
-Swagger UI: <http://localhost:8000/docs>
+FastAPI Swagger UI:
 
-Start the Streamlit interface in another terminal:
+```text
+http://localhost:8000/docs
+```
+
+Start Streamlit in another terminal:
 
 ```bash
 source .venv/bin/activate
 python -m streamlit run streamlit_app.py
 ```
 
-Application: <http://localhost:8501>
-
-SQLite is used for simple local development. Set `DATABASE_URL` in `.env` to use PostgreSQL. Add `GEMINI_API_KEY` only for invoice prefill, and configure the `SMTP_*` variables to send reminder emails.
-
-## Main workflow
+Application:
 
 ```text
-Add product manually ───────────────┐
-                                    ├─→ Save product → Track expiry → Send reminders
-Upload invoice → Extract → Review ──┘                    └─→ Attach claim documents
+http://localhost:8501
 ```
 
-Invoice extraction never saves products automatically. The user reviews and edits detected items first. One invoice can then be linked to multiple products through the `product_documents` junction table.
+SQLite is used for simple local development. Set `DATABASE_URL` in `.env` to use PostgreSQL.
 
-## Key endpoints
-
-| Endpoint | Purpose |
-| --- | --- |
-| `POST /auth/signup`, `POST /auth/login` | Account creation and JWT login |
-| `GET`, `POST /products` | Filtered product listing and creation |
-| `GET`, `PATCH`, `DELETE /products/{id}` | Product CRUD |
-| `GET /products/expiring` | Warranties expiring within a given window |
-| `POST /documents` | Upload a receipt or warranty document |
-| `POST /documents/{id}/extract` | Generate an editable invoice preview |
-| `POST /documents/{id}/confirm` | Save confirmed products and document links |
-| `GET /analytics/summary` | Dashboard warranty counts |
+`GEMINI_API_KEY` is required only for invoice prefill. Configure the `SMTP_*` variables to enable reminder emails.
 
 ## Tests
 
@@ -86,10 +139,14 @@ Invoice extraction never saves products automatically. The user reviews and edit
 pytest -q
 ```
 
-Tests cover authentication, user-scoped product CRUD, filtering, expiry calculation, document handling, invoice confirmation, analytics, and duplicate-safe reminders.
+Tests cover:
 
-## Scope
+* Authentication and authorization
+* User-scoped product CRUD
+* Search, filtering, and pagination
+* Warranty-expiry calculations
+* Document handling
+* Invoice confirmation
+* Dashboard analytics
+* Duplicate-safe reminder processing
 
-- Text-based PDFs are supported; OCR for scanned PDFs/images is intentionally excluded.
-- Files are stored locally while metadata is stored in SQL. Object storage is the natural production upgrade.
-- The in-process scheduler is suitable for this project scope; a deployed multi-instance service should use one platform-scheduled job.
