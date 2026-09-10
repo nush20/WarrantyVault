@@ -1,106 +1,95 @@
 # WarrantyVault
 
-WarrantyVault is a warranty management application for storing products and purchase documents, tracking warranty expirations, and sending configurable email reminders.
-
-It uses **FastAPI, SQLAlchemy, PostgreSQL, JWT authentication, Streamlit, and Gemini**. Gemini is used only for structured invoice autofill; warranty tracking, reminders, and analytics use deterministic backend logic.
+WarrantyVault is a warranty-management application for keeping products, purchase details, receipts, warranty documents, and expiry reminders in one place. It provides a FastAPI backend, a PostgreSQL-compatible data model, JWT authentication, scheduled email reminders, optional Gemini invoice extraction, and a lightweight Streamlit interface.
 
 ## Features
 
-* **Product Management** — Add, update, search, filter, and track products and warranty information.
-* **JWT Authentication** — Secure signup/login with user-scoped product and document access.
-* **Document Storage** — Upload PDF/JPG/PNG invoices and warranty documents.
-* **Shared Invoices** — Many-to-many product-document relationship allows one invoice to belong to multiple products.
-* **Invoice Autofill** — Extracts text from text-based PDFs and uses Gemini to generate an editable product preview before saving.
-* **Warranty Reminders** — Configurable 30-day, 7-day, and 1-day email reminders with duplicate prevention and delivery tracking.
-* **Dashboard** — SQL-based statistics for active, expiring, and expired warranties.
+- Secure signup and login with password hashing and JWT authentication
+- Product CRUD with search, filters, pagination, and ownership protection
+- Automatic warranty status and expiry tracking
+- PDF/image storage with authenticated download and deletion
+- Many-to-many product–document relationships for multi-item invoices
+- Gemini-powered invoice prefill with editable review before saving
+- Product-specific 30-day, 7-day, and 1-day email reminders
+- Dashboard counts for active, expiring, and expired warranties
 
 ## Architecture
 
 ```text
-Streamlit
-    ↓
-FastAPI REST API
-    ↓
-Pydantic Validation
-    ↓
-Service Layer
-    ↓
-SQLAlchemy
-    ↓
-PostgreSQL / SQLite
+Streamlit → FastAPI routers → service layer → SQLAlchemy → PostgreSQL
+                                ├── local document storage
+                                ├── Gemini extraction (optional)
+                                └── daily reminder scheduler → SMTP
 ```
-
-Backend structure:
 
 ```text
 backend/
-├── database/     # Database sessions
-├── models/       # SQLAlchemy models
-├── schemas/      # Pydantic schemas
-├── routers/      # API endpoints
-├── services/     # Business logic
-├── ai/           # Invoice extraction
-└── utils/        # Auth and shared utilities
+├── ai/          # PDF text and invoice-field extraction
+├── database/    # Engine and database sessions
+├── models/      # SQLAlchemy tables
+├── routers/     # HTTP endpoints
+├── schemas/     # Pydantic request/response models
+├── services/    # Business logic
+├── utils/       # Auth dependencies and exceptions
+└── main.py      # FastAPI application and scheduler startup
 ```
 
-## Reminder Flow
-
-```text
-Warranty expiry
-      ↓
-User reminder preferences
-      ↓
-Daily scheduler
-      ↓
-Check whether reminder is due
-      ↓
-Prevent duplicates
-      ↓
-Send email through SMTP
-      ↓
-Record sent/failed status
-```
-
-## Invoice Extraction
-
-```text
-Upload invoice
-      ↓
-Extract PDF text
-      ↓
-Gemini structured extraction
-      ↓
-Pydantic validation
-      ↓
-Editable preview
-      ↓
-User confirmation
-      ↓
-Create products + link invoice
-```
-
-AI-generated data is **never automatically written to the database** without user confirmation.
-
-> **Note:** OCR is not currently implemented. Images can be stored, while extraction is limited to text-based PDFs.
-
-## Tech Stack
-
-**Backend:** Python, FastAPI, Pydantic, SQLAlchemy
-**Database:** PostgreSQL / SQLite
-**Authentication:** JWT
-**AI:** Google Gemini
-**Frontend:** Streamlit
-**Notifications:** SMTP + scheduled reminders
-
-## Run Locally
+## Run locally
 
 ```bash
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
+cp .env.example .env
 python -m uvicorn backend.main:app --reload
 ```
 
-Configure database, JWT, Gemini, SMTP, and upload settings through environment variables in `.env`. Secrets should never be committed to Git.
+Swagger UI: <http://localhost:8000/docs>
 
-## Key Backend Concepts
+Start the Streamlit interface in another terminal:
 
-REST APIs • Layered Architecture • JWT Authentication • Authorization • Relational Modelling • Many-to-Many Relationships • SQLAlchemy ORM • File Uploads • Pagination & Filtering • Background Scheduling • Duplicate Prevention • SMTP • Structured AI Output
+```bash
+source .venv/bin/activate
+python -m streamlit run streamlit_app.py
+```
+
+Application: <http://localhost:8501>
+
+SQLite is used for simple local development. Set `DATABASE_URL` in `.env` to use PostgreSQL. Add `GEMINI_API_KEY` only for invoice prefill, and configure the `SMTP_*` variables to send reminder emails.
+
+## Main workflow
+
+```text
+Add product manually ───────────────┐
+                                    ├─→ Save product → Track expiry → Send reminders
+Upload invoice → Extract → Review ──┘                    └─→ Attach claim documents
+```
+
+Invoice extraction never saves products automatically. The user reviews and edits detected items first. One invoice can then be linked to multiple products through the `product_documents` junction table.
+
+## Key endpoints
+
+| Endpoint | Purpose |
+| --- | --- |
+| `POST /auth/signup`, `POST /auth/login` | Account creation and JWT login |
+| `GET`, `POST /products` | Filtered product listing and creation |
+| `GET`, `PATCH`, `DELETE /products/{id}` | Product CRUD |
+| `GET /products/expiring` | Warranties expiring within a given window |
+| `POST /documents` | Upload a receipt or warranty document |
+| `POST /documents/{id}/extract` | Generate an editable invoice preview |
+| `POST /documents/{id}/confirm` | Save confirmed products and document links |
+| `GET /analytics/summary` | Dashboard warranty counts |
+
+## Tests
+
+```bash
+pytest -q
+```
+
+Tests cover authentication, user-scoped product CRUD, filtering, expiry calculation, document handling, invoice confirmation, analytics, and duplicate-safe reminders.
+
+## Scope
+
+- Text-based PDFs are supported; OCR for scanned PDFs/images is intentionally excluded.
+- Files are stored locally while metadata is stored in SQL. Object storage is the natural production upgrade.
+- The in-process scheduler is suitable for this project scope; a deployed multi-instance service should use one platform-scheduled job.
