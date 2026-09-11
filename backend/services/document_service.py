@@ -12,6 +12,7 @@ from backend.models.product_document import ProductDocument
 from backend.schemas.product import ProductCreate
 from backend.services.product_service import create_product, get_product
 from backend.services.reminder_preference_service import set_preferences
+from backend.services import storage_service
 from backend.utils.exceptions import AppError, NotFoundError
 
 ALLOWED_CONTENT_TYPES = {"application/pdf", "image/jpeg", "image/png"}
@@ -25,13 +26,9 @@ def save_upload(db: Session, owner_id: str, upload: UploadFile, product_id: str 
         get_product(db, owner_id, product_id)
     suffix = Path(upload.filename or "document").suffix.lower()
     stored_filename = f"{uuid4()}{suffix}"
-    owner_dir = settings.upload_dir / owner_id
-    owner_dir.mkdir(parents=True, exist_ok=True)
-    target = owner_dir / stored_filename
     content = upload.file.read(settings.max_upload_mb * 1024 * 1024 + 1)
     if len(content) > settings.max_upload_mb * 1024 * 1024:
         raise AppError(f"File exceeds the {settings.max_upload_mb} MB limit")
-    target.write_bytes(content)
     document = Document(
         owner_id=owner_id,
         original_filename=Path(upload.filename or "document").name,
@@ -39,8 +36,14 @@ def save_upload(db: Session, owner_id: str, upload: UploadFile, product_id: str 
         content_type=upload.content_type,
         size_bytes=len(content),
     )
+    storage_service.save(document, content)
     db.add(document)
-    db.commit()
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        storage_service.remove(document)
+        raise
     db.refresh(document)
     if product_id:
         db.add(ProductDocument(product_id=product_id, document_id=document.id))
@@ -68,15 +71,18 @@ def list_documents(db: Session, owner_id: str, product_id: str) -> list[Document
 
 
 def stored_path(document: Document) -> Path:
-    return get_settings().upload_dir / document.owner_id / document.stored_filename
+    return storage_service.local_path(document)
+
+
+def stored_content(document: Document) -> bytes:
+    return storage_service.read(document)
 
 
 def delete_document(db: Session, document: Document) -> None:
-    path = stored_path(document)
+    storage_service.remove(document)
     db.execute(delete(ProductDocument).where(ProductDocument.document_id == document.id))
     db.delete(document)
     db.commit()
-    path.unlink(missing_ok=True)
 
 
 def _text(document: Document) -> str:
@@ -84,7 +90,7 @@ def _text(document: Document) -> str:
         raise AppError(
             "Text extraction currently supports text-based PDFs; image OCR is optional and not enabled"
         )
-    return extract_pdf_text(stored_path(document))
+    return extract_pdf_text(stored_content(document))
 
 
 def extract_product_preview(db: Session, document: Document):
