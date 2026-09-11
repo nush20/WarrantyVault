@@ -13,6 +13,10 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 60
     upload_dir: Path = Path("uploads")
     max_upload_mb: int = 10
+    storage_backend: str = "local"
+    supabase_url: str | None = None
+    supabase_service_key: str | None = Field(default=None, repr=False)
+    supabase_bucket: str = "warranty-documents"
     gemini_api_key: str | None = Field(default=None, repr=False)
     chat_model: str = "gemini-3.5-flash"
     chat_fallback_model: str = "gemini-3.1-flash-lite"
