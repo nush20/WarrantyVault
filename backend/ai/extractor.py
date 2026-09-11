@@ -1,5 +1,6 @@
 from datetime import date
 from decimal import Decimal
+from io import BytesIO
 from pathlib import Path
 
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -25,9 +26,10 @@ class ExtractedInvoice(BaseModel):
     items: list[ExtractedItem] = Field(min_length=1)
 
 
-def extract_pdf_text(path: Path) -> str:
+def extract_pdf_text(source: Path | bytes) -> str:
     try:
-        text = "\n\f\n".join(page.extract_text() or "" for page in PdfReader(path).pages).strip()
+        pdf_source = BytesIO(source) if isinstance(source, bytes) else source
+        text = "\n\f\n".join(page.extract_text() or "" for page in PdfReader(pdf_source).pages).strip()
     except Exception as exc:
         raise AppError("The PDF could not be read") from exc
     if not text:
