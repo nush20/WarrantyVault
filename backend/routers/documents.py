@@ -1,7 +1,7 @@
 from typing import Annotated
 
 from fastapi import APIRouter, File, Form, Response, UploadFile, status
-from fastapi.responses import FileResponse
+from urllib.parse import quote
 
 from backend.schemas.document import (
     DocumentResponse,
@@ -54,13 +54,15 @@ def confirm_receipt(
     )
 
 
-@router.get("/{document_id}/download", response_class=FileResponse)
+@router.get("/{document_id}/download")
 def download_document(document_id: str, db: DbSession, user: CurrentUser):
     document = document_service.get_document(db, user.id, document_id)
-    return FileResponse(
-        document_service.stored_path(document),
+    return Response(
+        content=document_service.stored_content(document),
         media_type=document.content_type,
-        filename=document.original_filename,
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{quote(document.original_filename)}"
+        },
     )
 
 
